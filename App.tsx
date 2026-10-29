@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ShoppingCart, CreditCard, Shield, Zap, Wallet, Plus, Flame, Target, Smartphone, CheckCircle2, Trophy, Home, Crown, Star, Music2, Gamepad2, Apple, ShoppingBag, User, LogOut, UserPlus, LogIn, Eye, EyeOff, Ticket, Upload, Copy, Check } from "lucide-react";
+import { useState } from "react";
+import { ShoppingCart, CreditCard, Shield, Zap, Wallet, Plus, Flame, Target, Smartphone, CheckCircle2, Trophy, Home, Crown, Star, Music2, Gamepad2, Apple, ShoppingBag, User, LogOut, UserPlus, LogIn, Eye, EyeOff, Ticket, Upload, Copy, Check, Coins } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,19 +33,6 @@ interface User {
   inviteCode?: string;
   points: number;
   balance: number;
-}
-
-const VODAFONE_CASH_NUMBER = "01065028436";
-const INSTAPAY_NUMBER = "01102850050";
-
-const isValidEgPhone = (v: string) => /^01[0125]\d{8}$/.test(v.trim());
-
-interface TopUpRequest {
-  id: number;
-  amount: number;
-  method: string;
-  sender: string;
-  status: "pending";
 }
 
 const freeFireItems = [
@@ -142,8 +129,8 @@ const mobileOperators = [
 
 const paymentMethods = [
   { id: "wallet", label: "محفظتي", icon: Wallet, desc: "رصيد الموقع" },
-  { id: "instapay", label: "إنستا باي", icon: Zap, desc: "تحويل فوري", number: INSTAPAY_NUMBER },
-  { id: "cash", label: "فودافون كاش", icon: Wallet, desc: "تحويل فودافون كاش", number: VODAFONE_CASH_NUMBER },
+  { id: "instapay", label: "إنستا باي", icon: Zap, desc: "تحويل فوري", number: "01102850050" },
+  { id: "cash", label: "كاش", icon: Wallet, desc: "تحويل كاش", number: "01065028436" },
   { id: "card", label: "بطاقة ائتمانية", icon: CreditCard, desc: "Visa / Mastercard" },
   { id: "fawry", label: "فوري باي", icon: Zap, desc: "دفع سريع وآمن" },
   { id: "bank", label: "تحويل بنكي", icon: CreditCard, desc: "حوالة بنكية" },
@@ -174,11 +161,9 @@ export default function App() {
   const [walletSenderNumber, setWalletSenderNumber] = useState("");
   const [walletProofImage, setWalletProofImage] = useState<string | null>(null);
   const [walletTopUpSuccess, setWalletTopUpSuccess] = useState(false);
-  const [proofTxnRef, setProofTxnRef] = useState("");
-  const [walletTxnRef, setWalletTxnRef] = useState("");
-  const [topUpRequests, setTopUpRequests] = useState<TopUpRequest[]>([]);
 
   // Auth state
+  const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authName, setAuthName] = useState("");
@@ -189,30 +174,12 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   const [authSuccess, setAuthSuccess] = useState("");
 
-  const loadMe = async () => {
-    try {
-      const res = await fetch("/api/me", { credentials: "include" });
-      if (!res.ok) {
-        setCurrentUser(null);
-        return;
-      }
-      const u = await res.json();
-      setCurrentUser({ name: u.name, email: u.email, password: "", inviteCode: u.invite_code, points: u.points, balance: u.balance });
-    } catch {
-      /* الخادم غير متاح */
-    }
-  };
-
-  useEffect(() => {
-    loadMe();
-  }, []);
-
   const addToCart = (item: CartItem) => {
     setCart([...cart, item]);
   };
 
-  const removeFromCart = (index: number) => {
-    setCart(cart.filter((_, i) => i !== index));
+  const removeFromCart = (id: number) => {
+    setCart(cart.filter((item) => item.id !== id));
   };
 
   const addMobileToCart = () => {
@@ -261,158 +228,123 @@ export default function App() {
     }
   };
 
-  const handleCheckout = async () => {
-    if (!currentUser) {
-      setAuthError("سجل الدخول أولاً لإتمام الطلب");
-      setCurrentPage("auth");
-      return;
-    }
-    const isProof = paymentMethod === "instapay" || paymentMethod === "cash";
-    if (paymentMethod !== "wallet" && !isProof) {
-      alert("طريقة الدفع دي غير متاحة حالياً، اختر المحفظة أو فودافون كاش أو إنستا باي");
-      return;
-    }
-    if (!email.trim()) {
-      alert("أدخل البريد الإلكتروني لاستلام الكود");
-      return;
-    }
-    if (isProof && (!isValidEgPhone(senderNumber) || proofTxnRef.trim().length < 6 || !proofImage)) return;
-
-    const form = new FormData();
-    form.append("payload", JSON.stringify({
-      items: cart.map((i) => ({ sku: `${i.name}|${i.amount}` })),
-      mobile: mobileCart.map((m) => ({ operator: m.operator, phone: m.phone, amount: m.amount })),
-      email: email.trim(),
-      method: paymentMethod,
-      note: proofNote,
-    }));
-    if (isProof && proofImage) {
-      form.append("sender_number", senderNumber.trim());
-      form.append("txn_ref", proofTxnRef.trim());
-      form.append("proof", await (await fetch(proofImage)).blob(), "proof");
-    }
-    try {
-      const res = await fetch("/api/orders", { method: "POST", body: form, credentials: "include" });
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        alert(typeof err?.detail === "string" ? err.detail : "تعذر إرسال الطلب، حاول مرة أخرى");
+  const handleCheckout = () => {
+    if (paymentMethod === "wallet") {
+      if (!currentUser) {
+        setAuthError("يجب تسجيل الدخول أولاً لاستخدام المحفظة");
+        setCurrentPage("auth");
         return;
       }
-    } catch {
-      alert("تعذر الاتصال بالخادم");
+      if (currentUser.balance < grandTotal) {
+        alert("رصيد المحفظة غير كافٍ! يرجى شحن المحفظة أولاً");
+        return;
+      }
+      const updatedUser = { ...currentUser, balance: currentUser.balance - grandTotal, points: currentUser.points + Math.floor(grandTotal / 10) };
+      setCurrentUser(updatedUser);
+      setUsers(users.map((u) => (u.email === updatedUser.email ? updatedUser : u)));
+      setOrderSubmitted(true);
+      setCart([]);
+      setMobileCart([]);
+      setEmail("");
       return;
     }
+
+    if (!senderNumber) return;
     setOrderSubmitted(true);
     setCart([]);
     setMobileCart([]);
     setEmail("");
     setSenderNumber("");
-    setProofTxnRef("");
     setProofImage(null);
     setProofNote("");
-    loadMe();
   };
-  const handleWalletTopUp = async () => {
+
+  const handleWalletTopUp = () => {
     const amount = parseFloat(walletTopUpAmount);
     if (!amount || amount <= 0) return;
-    if (!currentUser) {
-      setAuthError("يجب تسجيل الدخول أولاً لشحن المحفظة");
-      setCurrentPage("auth");
-      return;
-    }
-    if (!isValidEgPhone(walletSenderNumber) || walletTxnRef.trim().length < 6 || !walletProofImage) return;
+    if (!walletSenderNumber || !walletProofImage) return;
 
-    // الرصيد لا يُضاف هنا أبداً: الخادم يسجل الطلب والأدمن يؤكده
-    const form = new FormData();
-    form.append("amount", String(amount));
-    form.append("method", walletTopUpMethod);
-    form.append("sender_number", walletSenderNumber.trim());
-    form.append("txn_ref", walletTxnRef.trim());
-    form.append("proof", await (await fetch(walletProofImage)).blob(), "proof");
-    try {
-      const res = await fetch("/api/wallet/topups", { method: "POST", body: form, credentials: "include" });
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        alert(typeof err?.detail === "string" ? err.detail : "تعذر إرسال الطلب، حاول مرة أخرى");
-        return;
-      }
-      const created = await res.json();
-      setTopUpRequests([...topUpRequests, { id: created.id, amount, method: walletTopUpMethod, sender: walletSenderNumber, status: "pending" }]);
-    } catch {
-      alert("تعذر الاتصال بالخادم");
-      return;
+    if (currentUser) {
+      const updatedUser = { ...currentUser, balance: currentUser.balance + amount };
+      setCurrentUser(updatedUser);
+      setUsers(users.map((u) => (u.email === updatedUser.email ? updatedUser : u)));
     }
     setWalletTopUpSuccess(true);
     setWalletTopUpAmount("");
     setWalletSenderNumber("");
-    setWalletTxnRef("");
     setWalletProofImage(null);
   };
 
-  const handleRegister = async () => {
+  const handleRegister = () => {
     if (!authName || !authEmail || !authPassword) {
       setAuthError("يرجى ملء جميع الحقول المطلوبة");
       return;
     }
-    if (authPassword.length < 8) {
-      setAuthError("كلمة المرور يجب أن تكون 8 أحرف على الأقل");
+    if (authPassword.length < 6) {
+      setAuthError("كلمة المرور يجب أن تكون 6 أحرف على الأقل");
       return;
     }
-    try {
-      const res = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ name: authName, email: authEmail, password: authPassword, invite_code: authInviteCode.trim() || null }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        setAuthError(typeof data?.detail === "string" ? data.detail : "تعذر إنشاء الحساب، راجع البيانات");
+    if (users.some((u) => u.email === authEmail)) {
+      setAuthError("البريد الإلكتروني مسجل بالفعل");
+      return;
+    }
+
+    let bonusPoints = 0;
+    let successMsg = "";
+
+    if (authInviteCode.trim()) {
+      const inviter = users.find(
+        (u) => u.inviteCode && u.inviteCode.toUpperCase() === authInviteCode.trim().toUpperCase()
+      );
+      if (!inviter) {
+        setAuthError("رمز الدعوة غير صحيح");
         return;
       }
-      await loadMe();
-      setAuthSuccess(data.message);
-    } catch {
-      setAuthError("تعذر الاتصال بالخادم");
-      return;
+      bonusPoints = 50;
+      successMsg = `تم التسجيل بنجاح! حصلت على 50 نقطة مكافأة من دعوة ${inviter.name} 🎉`;
+    } else {
+      successMsg = "تم التسجيل بنجاح! حصلت على 20 نقطة ترحيبية 🎉";
+      bonusPoints = 20;
     }
+
+    const newUser: User = {
+      name: authName,
+      email: authEmail,
+      password: authPassword,
+      inviteCode: `SH${Math.floor(1000 + Math.random() * 9000)}`,
+      points: bonusPoints,
+      balance: 0,
+    };
+    setUsers([...users, newUser]);
+    setCurrentUser(newUser);
     setAuthName("");
     setAuthEmail("");
     setAuthPassword("");
     setAuthInviteCode("");
     setAuthError("");
+    setAuthSuccess(successMsg);
     setCurrentPage("home");
   };
-  const handleLogin = async () => {
+
+  const handleLogin = () => {
     if (!authEmail || !authPassword) {
       setAuthError("يرجى إدخال البريد الإلكتروني وكلمة المرور");
       return;
     }
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ email: authEmail, password: authPassword }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        setAuthError(typeof data?.detail === "string" ? data.detail : "بيانات الدخول غير صحيحة");
-        return;
-      }
-      await loadMe();
-    } catch {
-      setAuthError("تعذر الاتصال بالخادم");
+    const user = users.find((u) => u.email === authEmail && u.password === authPassword);
+    if (!user) {
+      setAuthError("بيانات الدخول غير صحيحة");
       return;
     }
+    setCurrentUser(user);
     setAuthEmail("");
     setAuthPassword("");
     setAuthError("");
     setAuthSuccess("");
     setCurrentPage("home");
   };
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => null);
+
+  const handleLogout = () => {
     setCurrentUser(null);
     setCurrentPage("home");
   };
@@ -565,21 +497,6 @@ export default function App() {
         </Card>
       )}
 
-      {topUpRequests.length > 0 && (
-        <Card className="border-amber-200 bg-amber-50">
-          <CardContent className="space-y-2 p-6">
-            <p className="font-bold text-amber-800">طلبات الشحن قيد المراجعة</p>
-            {topUpRequests.map((r) => (
-              <div key={r.id} className="flex items-center justify-between rounded-xl bg-white p-3 text-sm">
-                <span className="font-bold text-slate-900">{r.amount} ج.م</span>
-                <span className="text-slate-600">{r.method === "cash" ? "فودافون كاش" : "إنستا باي"} - <span dir="ltr">{r.sender}</span></span>
-                <Badge className="bg-amber-500">قيد المراجعة</Badge>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
       <Card className="border-emerald-100 shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -618,8 +535,8 @@ export default function App() {
             <Label>طريقة الشحن</Label>
             <div className="mt-2 grid gap-3 sm:grid-cols-2">
               {[
-                { id: "instapay", label: "إنستا باي", number: INSTAPAY_NUMBER, color: "from-purple-500 to-fuchsia-600" },
-                { id: "cash", label: "فودافون كاش", number: VODAFONE_CASH_NUMBER, color: "from-red-500 to-rose-600" },
+                { id: "instapay", label: "إنستا باي", number: "01102850050", color: "from-purple-500 to-fuchsia-600" },
+                { id: "cash", label: "كاش", number: "01065028436", color: "from-green-500 to-emerald-600" },
               ].map((m) => (
                 <button
                   key={m.id}
@@ -649,12 +566,12 @@ export default function App() {
               <p className="font-bold text-slate-700">رقم التحويل:</p>
               <div className="flex items-center gap-2">
                 <span className="text-lg font-bold text-slate-900" dir="ltr">
-                  {walletTopUpMethod === "instapay" ? INSTAPAY_NUMBER : VODAFONE_CASH_NUMBER}
+                  {walletTopUpMethod === "instapay" ? "01102850050" : "01065028436"}
                 </span>
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => copyToClipboard(walletTopUpMethod === "instapay" ? INSTAPAY_NUMBER : VODAFONE_CASH_NUMBER, "wallet")}
+                  onClick={() => copyToClipboard(walletTopUpMethod === "instapay" ? "01102850050" : "01065028436", "wallet")}
                 >
                   {copied === "wallet" ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
                 </Button>
@@ -668,17 +585,6 @@ export default function App() {
                 placeholder="01xxxxxxxxx"
                 value={walletSenderNumber}
                 onChange={(e) => setWalletSenderNumber(e.target.value)}
-                className="mt-1 bg-white"
-                dir="ltr"
-              />
-            </div>
-
-            <div className="mb-4">
-              <Label>رقم العملية (من رسالة التأكيد) *</Label>
-              <Input
-                placeholder="مثال: 123456789"
-                value={walletTxnRef}
-                onChange={(e) => setWalletTxnRef(e.target.value)}
                 className="mt-1 bg-white"
                 dir="ltr"
               />
@@ -717,7 +623,7 @@ export default function App() {
           <Button
             className="w-full bg-gradient-to-l from-emerald-600 to-teal-600 py-6 text-lg hover:from-emerald-700 hover:to-teal-700"
             onClick={handleWalletTopUp}
-            disabled={!walletTopUpAmount || !isValidEgPhone(walletSenderNumber) || walletTxnRef.trim().length < 6 || !walletProofImage}
+            disabled={!walletTopUpAmount || !walletSenderNumber || !walletProofImage}
           >
             <Wallet className="ml-2 h-5 w-5" />
             تأكيد شحن المحفظة
@@ -1104,7 +1010,7 @@ export default function App() {
                       <div className="flex-1">
                         <Input
                           type="number"
-                          min="5"
+                          min="1"
                           placeholder="أدخل المبلغ الذي تريده"
                           value={customMobileAmount}
                           onChange={(e) => {
@@ -1192,7 +1098,7 @@ export default function App() {
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-sm text-amber-100">طرق الدفع المتاحة</p>
-                    <p className="mt-2 text-2xl font-bold text-white">محفظتي • إنستا باي • فودافون كاش • بطاقة</p>
+                    <p className="mt-2 text-2xl font-bold text-white">محفظتي • إنستا باي • كاش • بطاقة</p>
                   </div>
                   <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/20">
                     <CreditCard className="h-8 w-8 text-white" />
@@ -1221,7 +1127,7 @@ export default function App() {
           <div className="flex items-center gap-2 sm:gap-4">
             {currentUser && (
               <button
-                onClick={() => { loadMe(); setCurrentPage("wallet"); }}
+                onClick={() => setCurrentPage("wallet")}
                 className="flex items-center gap-2 rounded-xl border-2 border-emerald-200 bg-emerald-50 px-3 py-2 transition-all hover:border-emerald-400 hover:bg-emerald-100"
               >
                 <Wallet className="h-4 w-4 text-emerald-600" />
@@ -1382,7 +1288,7 @@ export default function App() {
                         variant="ghost" 
                         size="sm" 
                         className="text-red-500 hover:text-red-600"
-                        onClick={() => removeFromCart(index)}
+                        onClick={() => removeFromCart(item.id)}
                       >
                         إزالة
                       </Button>
@@ -1492,24 +1398,24 @@ export default function App() {
                     <div className={`rounded-2xl border-2 p-6 ${
                       paymentMethod === "instapay" 
                         ? "border-purple-200 bg-gradient-to-l from-purple-50 to-fuchsia-50" 
-                        : "border-red-200 bg-gradient-to-l from-red-50 to-rose-50"
+                        : "border-green-200 bg-gradient-to-l from-green-50 to-emerald-50"
                     }`}>
                       <div className="mb-4 flex items-center gap-3">
                         <div className={`flex h-12 w-12 items-center justify-center rounded-xl text-white ${
                           paymentMethod === "instapay" 
                             ? "bg-gradient-to-br from-purple-500 to-fuchsia-600" 
-                            : "bg-gradient-to-br from-red-500 to-rose-600"
+                            : "bg-gradient-to-br from-green-500 to-emerald-600"
                         }`}>
                           {paymentMethod === "instapay" ? <Zap className="h-6 w-6" /> : <Wallet className="h-6 w-6" />}
                         </div>
                         <div>
                           <h3 className="text-lg font-bold text-slate-900">
-                            {paymentMethod === "instapay" ? "الدفع عبر إنستا باي" : "الدفع عبر فودافون كاش"}
+                            {paymentMethod === "instapay" ? "الدفع عبر إنستا باي" : "الدفع كاش"}
                           </h3>
                           <p className="text-sm text-slate-600">
                             {paymentMethod === "instapay" 
                               ? "حوّل المبلغ على رقم إنستا باي التالي" 
-                              : "حوّل المبلغ على رقم فودافون كاش التالي"}
+                              : "حوّل المبلغ على رقم الكاش التالي"}
                           </p>
                         </div>
                       </div>
@@ -1518,14 +1424,14 @@ export default function App() {
                         <p className="mb-2 text-sm font-bold text-slate-500">رقم التحويل</p>
                         <div className="flex items-center justify-between gap-3">
                           <p className="text-2xl font-bold tracking-wider text-slate-900" dir="ltr">
-                            {paymentMethod === "instapay" ? INSTAPAY_NUMBER : VODAFONE_CASH_NUMBER}
+                            {paymentMethod === "instapay" ? "01102850050" : "01065028436"}
                           </p>
                           <Button
                             size="sm"
                             variant="outline"
                             className="shrink-0"
                             onClick={() => copyToClipboard(
-                              paymentMethod === "instapay" ? INSTAPAY_NUMBER : VODAFONE_CASH_NUMBER,
+                              paymentMethod === "instapay" ? "01102850050" : "01065028436",
                               paymentMethod
                             )}
                           >
@@ -1571,20 +1477,8 @@ export default function App() {
                           dir="ltr"
                         />
                         <p className="mt-1 text-xs text-slate-500">
-                          {paymentMethod === "cash" ? "أدخل رقم فودافون كاش الذي حوّلت منه (11 رقم يبدأ بـ 01)" : "أدخل رقمك الذي حولت منه المبلغ لتأكيد العملية"}
+                          أدخل رقمك الذي حولت منه المبلغ لتأكيد العملية
                         </p>
-                      </div>
-
-                      <div className="mb-4">
-                        <Label htmlFor="proofTxn" className="text-slate-700">رقم العملية (من رسالة التأكيد) *</Label>
-                        <Input
-                          id="proofTxn"
-                          placeholder="مثال: 123456789"
-                          value={proofTxnRef}
-                          onChange={(e) => setProofTxnRef(e.target.value)}
-                          className="mt-1 bg-white"
-                          dir="ltr"
-                        />
                       </div>
 
                       <div className="mb-4">
@@ -1673,22 +1567,22 @@ export default function App() {
                   onClick={handleCheckout}
                   disabled={
                     (paymentMethod === "instapay" || paymentMethod === "cash") && 
-                    (!isValidEgPhone(senderNumber) || proofTxnRef.trim().length < 6 || !proofImage)
+                    (!senderNumber || !proofImage)
                   }
                 >
                   <Shield className="ml-2 h-5 w-5" />
                   {paymentMethod === "wallet" ? "ادفع من محفظتي" :
                    paymentMethod === "instapay" ? "تأكيد الطلب - إنستا باي" : 
-                   paymentMethod === "cash" ? "تأكيد الطلب - فودافون كاش" :
+                   paymentMethod === "cash" ? "تأكيد الطلب - كاش" :
                    paymentMethod === "fawry" ? "ادفع عبر فوري باي" : 
                    paymentMethod === "bank" ? "ادفع عبر تحويل بنكي" :
                    "ادفع الآن بأمان"}
                 </Button>
 
                 {(paymentMethod === "instapay" || paymentMethod === "cash") && 
-                 (!isValidEgPhone(senderNumber) || proofTxnRef.trim().length < 6 || !proofImage) && (
+                 (!senderNumber || !proofImage) && (
                   <p className="mt-3 text-center text-sm text-red-500">
-                    ⚠️ يجب إدخال الرقم المحول منه ورقم العملية ورفع صورة إثبات التحويل
+                    ⚠️ يجب إدخال الرقم المحول منه ورفع صورة إثبات التحويل
                   </p>
                 )}
               </div>
